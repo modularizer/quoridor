@@ -27,14 +27,23 @@ class MqttClient {
 class QuoridorGame extends HTMLElement {
   constructor() {
     super();
-    this.channel = new MqttClient("torintest");
     this.uid = Date.now() + Math.random();
-    this.channel.receive = this.receive.bind(this);
+    const searchParams = new URLSearchParams(location.search);
+    const searchObject = {};
+    searchParams.forEach((value, key) => {
+      searchObject[key] = value;
+    });
+    this.search = searchObject;
+    if (this.search.topic){
+        this.channel = new MqttClient("modularizerquoridor" + this.search.topic);
+        this.channel.receive = this.receive.bind(this);
+    }
+
     this.select = this.select.bind(this);
     this.send = this.send.bind(this);
     this.receive = this.receive.bind(this);
-    this._r = this.hasAttribute("r")?(1*this.getAttribute("r")):1
-    this.flip = location.hash.includes("flip")
+    this._r = this.hasAttribute("r")?(1*this.getAttribute("r")):1;
+    this.flip = (this.search.flip!==undefined)?this.search.flip:false;
     this.undo = this.undo.bind(this);
     this.attachShadow({mode: 'open'});
     this.shadowRoot.innerHTML = `
@@ -76,8 +85,10 @@ class QuoridorGame extends HTMLElement {
             z-index: 999;
         }
       </style>
+
       <svg id = "svg" transform="rotate(${180*(2-this._r)})" width="45%" height="45%" viewBox="-20 -20 140 140" class="point">
         <g id="board" class="point">
+            <text id="player" style="display:none">1</text>
             <g id="walls">
                 <g id="walls1"></g>
                 <g id="walls2"></g>
@@ -200,7 +211,7 @@ class QuoridorGame extends HTMLElement {
             }
         }
     }).bind(this))
-    this.player = 2;
+    this.r = this.search.r?this.search.r:1;
   }
 
   get r(){return (1*this.els.svg.getAttribute("transform").replace("rotate(","").replace(")",""))/180}
@@ -277,7 +288,11 @@ class QuoridorGame extends HTMLElement {
   sendRedo(u){
     this.send("redo");
   }
-  send(p){this.channel.send(JSON.stringify({uid: this.uid, payload: p}));}
+  send(p){
+    if (this.search.topic){
+        this.channel.send(JSON.stringify({uid: this.uid, payload: p}));
+    }
+  }
   receive(p){
     let d = JSON.parse(p);
     if (d.uid != this.uid){
@@ -339,24 +354,22 @@ class QuoridorGame extends HTMLElement {
     return el
   }
 
-
-  _player = 1
-  get player(){return this._player}
+  get player(){return this.els.player.innerHTML*1}
   set player(v){
     let els = Array.from(this.shadowRoot.querySelectorAll(".circle.player1:not([selected])"));
     if (v == 1){
         els.map(el=>{el.style.display='block'});
-        this._player = v;
+        this.els.player.innerHTML = v;
         this.turn1.classList.remove("used");
         this.turn2.classList.add("used");
     }else if (v == 2){
         els.map(el=>{el.style.display='none'});
-        this._player = v;
+        this.els.player.innerHTML = v;
         this.turn2.classList.remove("used");
         this.turn1.classList.add("used");
     }
     if (this.flip){
-        this.r = this._player;
+        this.r = this.player;
     }
   }
 
