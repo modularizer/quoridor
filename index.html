@@ -34,11 +34,12 @@ class QuoridorGame extends HTMLElement {
       searchObject[key] = value;
     });
     this.search = searchObject;
-    if (this.search.topic){
-        this.channel = new MqttClient("modularizerquoridor" + this.search.topic);
-        this.channel.receive = this.receive.bind(this);
-    }
 
+
+    this.connect = this.connect.bind(this);
+    if (this.search.topic){
+        this.connect(this.search.topic);
+    }
     this.select = this.select.bind(this);
     this._select = this._select.bind(this);
     this.send = this.send.bind(this);
@@ -97,7 +98,7 @@ class QuoridorGame extends HTMLElement {
             <g id="grid">
             </g>
         </g>
-      </svg>
+      </svg><br/>
       <button onclick="gameBoard.undo()">undo</button>
       <button onclick="gameBoard.redo()">redo</button>
       <button onclick="location.reload(true)">reset</button>
@@ -213,6 +214,11 @@ class QuoridorGame extends HTMLElement {
         }
     }).bind(this))
     this.r = this.search.r?this.search.r:1;
+  }
+
+  connect(topic){
+    this.channel = new MqttClient("modularizerquoridor" + this.search.topic);
+    this.channel.receive = this.receive.bind(this);
   }
 
   get r(){return (1*this.els.svg.getAttribute("transform").replace("rotate(","").replace(")",""))/180}
