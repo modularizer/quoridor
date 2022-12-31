@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Quoridor</title>
+    <link id="favicon" rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2016%2016'%3E%3Ccircle%20cx%3D%227%22%20cy%3D%227%22%20r%3D%227%22%20style%3D%22fill%3A%23ffcccc%3B%22%2F%3E%3C%2Fsvg%3E"/>
+</head>
+<body>
+
+</body>
+<script>
+/* make a customElement class which makes an svg which contains a 9x9 grid of light red cells with the spacing between cells 1/3 of the cell. make the element store the cell elements as a 2d 9x9 array */
+class quoridorGame extends HTMLElement {
+  constructor() {
+    super();
+    this.select = this.select.bind(this);
+    this.attachShadow({mode: 'open'});
+    this.shadowRoot.innerHTML = `
+      <style>
+        .point{
+        }
+        .gone{
+            display: none;
+        }
+        .used{
+            opacity: 0.2!important;
+        }
+        .turn {
+            opacity:  1;
+        }
+        .hidden:not([selected]):not(.gone){
+            opacity: 0;
+        }
+        .hidden:not([selected]):hover{
+            opacity: 0.2;
+            z-index: 998;
+        }
+        .cell{
+            fill: #ffcccc;
+            z-index: 1;
+        }
+
+        .player1{
+            fill: #e6b76b;
+            background-color: #e6b76b;
+        }
+        .player2{
+            fill: #5d3b2e;
+            background-color: #5d3b2e;
+        }
+        .wall{
+            fill: brown;
+            z-index: 999;
+        }
+      </style>
+      <svg id = "svg" width="45%" height="45%" viewBox="-20 -20 140 140" class="point">
+        <g id="board" class="point">
+        </g>
+      </svg>
+    `;
+    this.svg = this.shadowRoot.getElementById("svg");
+    this.grid = [];
+    this.circles1 = [];
+    this.circles2 = [];
+    this.hwalls = [];
+    this.vwalls = [];
+    this.walls1 = [];
+    this.walls2 = []
+    let board = this.shadowRoot.getElementById('board');
+    let walls = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    walls.setAttribute("id", "walls");
+    let walls1 = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    walls1.setAttribute("id", "walls1");
+    this.turn1 = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    this.turn1.setAttribute("x", -20);
+    this.turn1.setAttribute("y", -20);
+    this.turn1.setAttribute("width", 140);
+    this.turn1.setAttribute("height", 20);
+    this.turn1.classList.add("player1");
+    this.turn1.classList.add("turn");
+    walls.appendChild(this.turn1);
+    let walls2 = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    walls2.setAttribute("id", "walls2");
+    this.turn2 = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    this.turn2.setAttribute("x", -20);
+    this.turn2.setAttribute("y", 90);
+    this.turn2.setAttribute("width", 140);
+    this.turn2.setAttribute("height", 20);
+    this.turn2.classList.add("turn");
+    this.turn2.classList.add("player2");
+    this.turn2.classList.add("used");
+    walls.appendChild(this.turn2);
+    let grid = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    grid.setAttribute("id", "grid");
+    board.appendChild(walls);
+    board.appendChild(grid);
+    walls.appendChild(walls1);
+    walls.appendChild(walls2);
+    for (var i = 0; i < 10; i++) {
+        var wall1 = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        wall1.setAttribute('class', 'wall player1');
+        wall1.setAttribute('x', i * 10 - 1.5);
+        wall1.setAttribute('y', -15);
+        wall1.setAttribute('width', 3);
+        wall1.setAttribute('height', 10);
+        wall1.setAttribute("id", "wall1" + i);
+        this.walls1.push(wall1);
+        walls1.appendChild(wall1);
+
+        var wall2 = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        wall2.setAttribute('class', 'wall player2');
+        wall2.setAttribute('x', i * 10 - 1.5);
+        wall2.setAttribute('y', 95);
+        wall2.setAttribute('width', 3);
+        wall2.setAttribute('height', 10);
+        wall2.setAttribute("id", "wall2" + i);
+        this.walls2.push(wall2);
+        walls2.appendChild(wall2);
+    }
+    for (var i = 0; i < 9; i++) {
+      var row = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      row.setAttribute("id", "row" + i);
+      grid.append(row);
+
+      this.grid[i] = [];
+      this.circles1[i] = [];
+      this.circles2[i] = [];
+      this.hwalls[i] = [];
+      this.vwalls[i] = [];
+      for (var j = 0; j < 9; j++) {
+        var cellGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        cellGroup.setAttribute("id", "cellGroup" + i + j);
+        row.append(cellGroup);
+
+        var cell = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        cell.setAttribute("id", "cell" + i + j);
+        cell.setAttribute('class', 'cell');
+        cell.setAttribute('x', i * 10 + 1.5);
+        cell.setAttribute('y', j * 10 + 1.5);
+        cell.setAttribute('width', 7);
+        cell.setAttribute('height', 7);
+        this.grid[i][j] = cell;
+        cellGroup.appendChild(cell);
+
+        var circle2 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle2.setAttribute("id", "circle2" + i + j);
+        circle2.setAttribute('class', 'circle hidden player2');
+        circle2.setAttribute('cx', i * 10 + 5);
+        circle2.setAttribute('cy', j * 10 + 5);
+        circle2.setAttribute('r', 3);
+        circle2.addEventListener('click', this.select);
+        cellGroup.appendChild(circle2);
+        this.circles2[i][j] = circle2;
+
+        var circle1 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle1.setAttribute("id", "circle1" + i + j);
+        circle1.setAttribute('class', 'circle hidden player1');
+        circle1.setAttribute('cx', i * 10 + 5);
+        circle1.setAttribute('cy', j * 10 + 5);
+        circle1.setAttribute('r', 3);
+        circle1.addEventListener('click', this.select);
+        cellGroup.appendChild(circle1);
+        this.circles1[i][j] = circle1;
+
+
+
+        if (i < 8 && j < 8){
+            var hwall = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            hwall.setAttribute('class', 'wall hidden');
+            hwall.setAttribute('x', i * 10 + 1.5);
+            hwall.setAttribute('y', j * 10 + 8.5);
+            hwall.setAttribute('width', 17);
+            hwall.setAttribute('height', 3);
+            hwall.setAttribute("id", "hwall" + i + j);
+            hwall.addEventListener('click', this.select);
+            cellGroup.appendChild(hwall);
+            this.hwalls[i][j] = hwall;
+
+            var vwall = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            vwall.setAttribute('class', 'wall hidden');
+            vwall.setAttribute('x', i * 10 + 8.5);
+            vwall.setAttribute('y', j * 10 + 1.5);
+            vwall.setAttribute('width', 3);
+            vwall.setAttribute('height', 17);
+            vwall.setAttribute("id", "vwall" + i + j);
+            vwall.addEventListener('click', this.select);
+            cellGroup.appendChild(vwall);
+            this.vwalls[i][j] = vwall;
+        }
+      }
+    }
+    this.circles1[4][0].setAttribute("selected", "");
+    this.circles2[4][8].setAttribute("selected", "");
+  }
+  get player1(){return this.shadowRoot.querySelector(".player1[selected]")}
+  get player2(){return this.shadowRoot.querySelector(".player2[selected]")}
+  get nextWall1(){return this.shadowRoot.querySelector(".wall.player1:not(.used)")}
+  get nextWall2(){return this.shadowRoot.querySelector(".wall.player2:not(.used)")}
+
+  select(e){
+    let el = e.target;
+    let player = el.classList.contains("player1")?1:(el.classList.contains("player2")?2:0);
+    console.log(player, el.classList.contains("wall"));
+    if (!el.classList.contains("gone")){
+        if (el.classList.contains("wall")){
+            if (this.player == 1){
+                if (this.nextWall1){
+                    this.nextWall1.classList.add("used");
+                    el.setAttribute("selected", "");
+                    this.player = 2;
+                    let d = el.id.slice(0, 1);
+                    let otherId = (d === "h")?("v" + el.id.slice(1)):("h" + el.id.slice(1))
+                    let other = this.shadowRoot.getElementById(otherId);
+                    other.classList.add("gone");
+                }
+            }else if (this.player == 2){
+                if (this.nextWall2){
+                    this.nextWall2.classList.add("used");
+                    el.setAttribute("selected", "");
+                    this.player = 1;
+                    let d = el.id.slice(0, 1);
+                    let otherId = (d === "h")?("v" + el.id.slice(1)):("h" + el.id.slice(1))
+                    let other = this.shadowRoot.getElementById(otherId);
+                    other.classList.add("gone");
+                }
+            }
+        }else {
+            if (player == 1){
+                this.player1.removeAttribute("selected");
+                el.setAttribute("selected", "");
+                this.player = 2;
+            }else if (player == 2){
+                this.player2.removeAttribute("selected");
+                el.setAttribute("selected", "");
+                this.player = 1;
+            }
+        }
+        this.updateFavicon();
+    }
+  }
+
+  _player = 1
+  get player(){return this._player}
+  set player(v){
+    let els = Array.from(this.shadowRoot.querySelectorAll(".circle.player1:not([selected])"));
+    if (v == 1){
+        els.map(el=>{el.style.display='block'});
+        this._player = v;
+        this.turn1.classList.remove("used");
+        this.turn2.classList.add("used");
+    }else if (v == 2){
+        els.map(el=>{el.style.display='none'});
+        this._player = v;
+        this.turn2.classList.remove("used");
+        this.turn1.classList.add("used");
+    }
+  }
+
+}
+customElements.define('quoridor-game', quoridorGame);
+/* add the custom element to page */
+var gameBoard = document.createElement('quoridor-game');
+document.body.appendChild(gameBoard);
+
+</script>
+</html>
