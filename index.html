@@ -4,16 +4,38 @@
     <meta charset="UTF-8">
     <title>Quoridor</title>
     <link id="favicon" rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2016%2016'%3E%3Ccircle%20cx%3D%227%22%20cy%3D%227%22%20r%3D%227%22%20style%3D%22fill%3A%23ffcccc%3B%22%2F%3E%3C%2Fsvg%3E"/>
+
 </head>
 <body>
 
 </body>
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 <script>
+class MqttClient {
+  constructor(topic, options){
+    let client = mqtt.connect('wss://public:public@public.cloud.shiftr.io', {clientId: 'javascript'});
+    client.on('connect', function() {client.subscribe(topic);});
+    client.on('message', ((t, message)=>{if (t === topic){this.receive(message)}}).bind(this));
+    this.client = client;
+    this.topic = topic;
+  }
+  send(m){this.client.publish(this.topic, m)}
+  receive(p){console.log(p)}
+}
+
 /* make a customElement class which makes an svg which contains a 9x9 grid of light red cells with the spacing between cells 1/3 of the cell. make the element store the cell elements as a 2d 9x9 array */
-class quoridorGame extends HTMLElement {
+class QuoridorGame extends HTMLElement {
   constructor() {
     super();
+    this.channel = new MqttClient("torintest");
+    this.uid = Date.now() + Math.random();
+    this.channel.receive = this.receive.bind(this);
     this.select = this.select.bind(this);
+    this.send = this.send.bind(this);
+    this.receive = this.receive.bind(this);
+    this._r = this.hasAttribute("r")?(1*this.getAttribute("r")):1
+    this.flip = location.hash.includes("flip")
+    this.undo = this.undo.bind(this);
     this.attachShadow({mode: 'open'});
     this.shadowRoot.innerHTML = `
       <style>
@@ -26,13 +48,14 @@ class quoridorGame extends HTMLElement {
             opacity: 0.2!important;
         }
         .turn {
-            opacity:  1;
+            opacity:  0.8;
+            z-index: 0,
         }
         .hidden:not([selected]):not(.gone){
             opacity: 0;
         }
         .hidden:not([selected]):hover{
-            opacity: 0.2;
+            opacity: 0.3;
             z-index: 998;
         }
         .cell{
@@ -53,191 +76,269 @@ class quoridorGame extends HTMLElement {
             z-index: 999;
         }
       </style>
-      <svg id = "svg" width="45%" height="45%" viewBox="-20 -20 140 140" class="point">
+      <svg id = "svg" transform="rotate(${180*(2-this._r)})" width="45%" height="45%" viewBox="-20 -20 140 140" class="point">
         <g id="board" class="point">
+            <g id="walls">
+                <g id="walls1"></g>
+                <g id="walls2"></g>
+            </g>
+            <g id="grid">
+            </g>
         </g>
       </svg>
+      <button onclick="gameBoard.undo()">undo</button>
+      <button onclick="gameBoard.redo()">redo</button>
+      <button onclick="location.reload(true)">reset</button>
     `;
+    let r = this.shadowRoot;
+    this.els = new Proxy({},{
+        get(target, id, receiver){
+            return r.getElementById(id)
+        }
+    })
+
     this.svg = this.shadowRoot.getElementById("svg");
-    this.grid = [];
-    this.circles1 = [];
-    this.circles2 = [];
-    this.hwalls = [];
-    this.vwalls = [];
-    this.walls1 = [];
-    this.walls2 = []
-    let board = this.shadowRoot.getElementById('board');
-    let walls = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    walls.setAttribute("id", "walls");
-    let walls1 = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    walls1.setAttribute("id", "walls1");
-    this.turn1 = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    this.turn1.setAttribute("x", -20);
-    this.turn1.setAttribute("y", -20);
-    this.turn1.setAttribute("width", 140);
-    this.turn1.setAttribute("height", 20);
-    this.turn1.classList.add("player1");
-    this.turn1.classList.add("turn");
-    walls.appendChild(this.turn1);
-    let walls2 = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    walls2.setAttribute("id", "walls2");
-    this.turn2 = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    this.turn2.setAttribute("x", -20);
-    this.turn2.setAttribute("y", 90);
-    this.turn2.setAttribute("width", 140);
-    this.turn2.setAttribute("height", 20);
-    this.turn2.classList.add("turn");
-    this.turn2.classList.add("player2");
-    this.turn2.classList.add("used");
-    walls.appendChild(this.turn2);
-    let grid = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    grid.setAttribute("id", "grid");
-    board.appendChild(walls);
-    board.appendChild(grid);
-    walls.appendChild(walls1);
-    walls.appendChild(walls2);
-    for (var i = 0; i < 10; i++) {
-        var wall1 = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        wall1.setAttribute('class', 'wall player1');
-        wall1.setAttribute('x', i * 10 - 1.5);
-        wall1.setAttribute('y', -15);
-        wall1.setAttribute('width', 3);
-        wall1.setAttribute('height', 10);
-        wall1.setAttribute("id", "wall1" + i);
-        this.walls1.push(wall1);
-        walls1.appendChild(wall1);
 
-        var wall2 = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        wall2.setAttribute('class', 'wall player2');
-        wall2.setAttribute('x', i * 10 - 1.5);
-        wall2.setAttribute('y', 95);
-        wall2.setAttribute('width', 3);
-        wall2.setAttribute('height', 10);
-        wall2.setAttribute("id", "wall2" + i);
-        this.walls2.push(wall2);
-        walls2.appendChild(wall2);
+    // add rectangles to indicate whose turn it is
+    for (let p of [1, 2]){
+        this["turn" + p] = this.make('rect', {
+                x: -20,
+                y: -20 + 110 * (p - 1),
+                width: 140,
+                height: 20,
+            }, (p==1)?["turn", "player1"]:["turn", "player2", "used"])
+        this.els.walls.append(this["turn" + p])
     }
-    for (var i = 0; i < 9; i++) {
-      var row = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-      row.setAttribute("id", "row" + i);
-      grid.append(row);
 
-      this.grid[i] = [];
-      this.circles1[i] = [];
-      this.circles2[i] = [];
-      this.hwalls[i] = [];
-      this.vwalls[i] = [];
+    // add walls for each player above and below the board
+    for (var i = 0; i < 10; i++) {
+        for (let p of [1,2]){
+            this.els["walls" + p].append(
+                this.make('rect', {
+                    x: i * 10 - 1.5,
+                    y: -15 + 110*(p-1),
+                    width: 3,
+                    height: 10,
+                    id: "wall" + p + i,
+                }, ["wall", "reserve", "player" + p])
+            )
+        }
+    }
+
+
+    for (var i = 0; i < 9; i++) {
+      // make row
+      var row = this.make('g', {id: "row" + i});
+      this.els.grid.append(row);
+
       for (var j = 0; j < 9; j++) {
-        var cellGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        cellGroup.setAttribute("id", "cellGroup" + i + j);
+        var cellGroup = this.make('g', {id: "cellGroup" + i + j});
         row.append(cellGroup);
 
-        var cell = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        cell.setAttribute("id", "cell" + i + j);
-        cell.setAttribute('class', 'cell');
-        cell.setAttribute('x', i * 10 + 1.5);
-        cell.setAttribute('y', j * 10 + 1.5);
-        cell.setAttribute('width', 7);
-        cell.setAttribute('height', 7);
-        this.grid[i][j] = cell;
+        //make cell
+        var cell = this.make('rect', {
+            id: "cell" + i + j,
+            x: i * 10 + 1.5,
+            y: j * 10 + 1.5,
+            width: 7,
+            height: 7,
+        }, ["cell"]);
         cellGroup.appendChild(cell);
 
-        var circle2 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        circle2.setAttribute("id", "circle2" + i + j);
-        circle2.setAttribute('class', 'circle hidden player2');
-        circle2.setAttribute('cx', i * 10 + 5);
-        circle2.setAttribute('cy', j * 10 + 5);
-        circle2.setAttribute('r', 3);
-        circle2.addEventListener('click', this.select);
-        cellGroup.appendChild(circle2);
-        this.circles2[i][j] = circle2;
+        // make player pieces in cell
+        for (let p of [2,1]){
+            var circle = this.make('circle', {
+                id: "circle" + p + i + j,
+                cx: i * 10 + 5,
+                cy: j * 10 + 5,
+                r: 3,
+            }, ["circle", "hidden", "player" + p],
+            {click: this.select});
+            cellGroup.append(circle);
+        }
 
-        var circle1 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        circle1.setAttribute("id", "circle1" + i + j);
-        circle1.setAttribute('class', 'circle hidden player1');
-        circle1.setAttribute('cx', i * 10 + 5);
-        circle1.setAttribute('cy', j * 10 + 5);
-        circle1.setAttribute('r', 3);
-        circle1.addEventListener('click', this.select);
-        cellGroup.appendChild(circle1);
-        this.circles1[i][j] = circle1;
-
-
-
+        // make rectangles
         if (i < 8 && j < 8){
-            var hwall = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-            hwall.setAttribute('class', 'wall hidden');
-            hwall.setAttribute('x', i * 10 + 1.5);
-            hwall.setAttribute('y', j * 10 + 8.5);
-            hwall.setAttribute('width', 17);
-            hwall.setAttribute('height', 3);
-            hwall.setAttribute("id", "hwall" + i + j);
-            hwall.addEventListener('click', this.select);
-            cellGroup.appendChild(hwall);
-            this.hwalls[i][j] = hwall;
+            cellGroup.appendChild(
+                this.make('rect', {
+                        id: "hwall" + i + j,
+                        x: i * 10 + 1.5,
+                        y: j * 10 + 8.5,
+                        width: 17,
+                        height: 3,
+                    },
+                    ["wall", "spot", "hidden"],
+                    {click: this.select})
+            );
 
-            var vwall = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-            vwall.setAttribute('class', 'wall hidden');
-            vwall.setAttribute('x', i * 10 + 8.5);
-            vwall.setAttribute('y', j * 10 + 1.5);
-            vwall.setAttribute('width', 3);
-            vwall.setAttribute('height', 17);
-            vwall.setAttribute("id", "vwall" + i + j);
-            vwall.addEventListener('click', this.select);
-            cellGroup.appendChild(vwall);
-            this.vwalls[i][j] = vwall;
+            cellGroup.appendChild(
+                this.make('rect', {
+                    id: "vwall" + i + j,
+                    x: i * 10 + 8.5,
+                    y: j * 10 + 1.5,
+                    width: 3,
+                    height: 17,
+                },
+                ["wall", "spot", "hidden"],
+                {click: this.select})
+            );
         }
       }
     }
-    this.circles1[4][0].setAttribute("selected", "");
-    this.circles2[4][8].setAttribute("selected", "");
+    this.els.circle140.setAttribute("selected", "");
+    this.els.circle248.setAttribute("selected", "");
+
+    this.moves = [];
+    this.undone = [];
+
+    document.body.addEventListener('keydown', (e=>{
+        if (e.ctrlKey){
+            if (e.key === 'z'){
+                this.undo();
+            }else if (e.key === 'y'){
+                this.redo();
+            }
+        }
+    }).bind(this))
+    this.player = 2;
   }
+
+  get r(){return (1*this.els.svg.getAttribute("transform").replace("rotate(","").replace(")",""))/180}
+  set r(v){
+    this.els.svg.setAttribute("transform", `rotate(${180*(2-v)})`)
+    console.log(this.els.svg.getAttribute("transform"))
+    }
+
   get player1(){return this.shadowRoot.querySelector(".player1[selected]")}
   get player2(){return this.shadowRoot.querySelector(".player2[selected]")}
   get nextWall1(){return this.shadowRoot.querySelector(".wall.player1:not(.used)")}
   get nextWall2(){return this.shadowRoot.querySelector(".wall.player2:not(.used)")}
 
   select(e){
+    this.moves.push([this.els.board.innerHTML, this._player, true]);
+    this.undone = [];
     let el = e.target;
     let player = el.classList.contains("player1")?1:(el.classList.contains("player2")?2:0);
-    console.log(player, el.classList.contains("wall"));
-    if (!el.classList.contains("gone")){
+    if (!el.classList.contains("gone")){ // make sure this piece is allowed to be used
         if (el.classList.contains("wall")){
-            if (this.player == 1){
-                if (this.nextWall1){
-                    this.nextWall1.classList.add("used");
-                    el.setAttribute("selected", "");
-                    this.player = 2;
-                    let d = el.id.slice(0, 1);
-                    let otherId = (d === "h")?("v" + el.id.slice(1)):("h" + el.id.slice(1))
-                    let other = this.shadowRoot.getElementById(otherId);
-                    other.classList.add("gone");
+            let replace = false;
+            if (this.player == 1 && this.nextWall1){
+                this.nextWall1.classList.add("used");
+                replace = true;
+            }else if (this.player == 2 && this.nextWall2){
+                this.nextWall2.classList.add("used");
+                replace = true;
+            }
+            if (replace){
+                // hide walls it is impossible to select
+                let d = el.id.slice(0, 1);
+                let r = 1*el.id.slice(-2,-1);
+                let c = 1*el.id.slice(-1);
+                let otherIds = [
+                    ((d === "h")?"v":"h") + "wall" + r + c,
+                    d + "wall" + (r-1) + c,
+                    d + "wall" + r + (c-1)
+                ]
+                for (let otherId of otherIds){
+                    var other = this.shadowRoot.getElementById(otherId);
+                    if (other){
+                        other.classList.add("gone");
+                    }
                 }
-            }else if (this.player == 2){
-                if (this.nextWall2){
-                    this.nextWall2.classList.add("used");
-                    el.setAttribute("selected", "");
-                    this.player = 1;
-                    let d = el.id.slice(0, 1);
-                    let otherId = (d === "h")?("v" + el.id.slice(1)):("h" + el.id.slice(1))
-                    let other = this.shadowRoot.getElementById(otherId);
-                    other.classList.add("gone");
-                }
+                el.setAttribute("selected", "");
+                this.player = 3 - this.player;
             }
         }else {
-            if (player == 1){
-                this.player1.removeAttribute("selected");
-                el.setAttribute("selected", "");
-                this.player = 2;
-            }else if (player == 2){
-                this.player2.removeAttribute("selected");
-                el.setAttribute("selected", "");
-                this.player = 1;
+            let other = this.els[el.id.replace(player, 3-player)];
+            if (other && !other.classList.contains('selected')){
+                if (player == 1){
+                    this.player1.removeAttribute("selected");
+                    el.setAttribute("selected", "");
+                    this.player = 2;
+                }else if (player == 2){
+                    this.player2.removeAttribute("selected");
+                    el.setAttribute("selected", "");
+                    this.player = 1;
+                }
             }
         }
-        this.updateFavicon();
+    }
+    this.sendPlay()
+  }
+  sendPlay(u){
+    let ih = this.els.svg.innerHTML;
+    let p = this.player;
+    let payload = {ih, p};
+    this.send(payload);
+  }
+  sendUndo(u){
+    this.send("undo");
+  }
+  sendRedo(u){
+    this.send("redo");
+  }
+  send(p){this.channel.send(JSON.stringify({uid: this.uid, payload: p}));}
+  receive(p){
+    let d = JSON.parse(p);
+    if (d.uid != this.uid){
+        p = d.payload;
+        console.log("Received", p)
+        let r = this.r;
+        if (p === "undo"){
+            this.undo();
+        }else if (p === "redo"){
+            this.redo();
+        }else{
+            this.receivePlay(p);
+        }
+        this.r = r;
+        console.log(this.r);
     }
   }
+  receivePlay(payload){
+    this.set(payload.ih, payload.p, false);
+  }
+  undo(){
+    if (this.moves.length){
+        let [ih, p, u] = this.moves.pop();
+        this.set(ih, p, u);
+        this.sendUndo();
+    }
+  }
+  redo(){
+    if (this.undone.length){
+        let [ih, p, u]= this.undone.pop();
+        this.set(ih, p, u);
+        this.sendRedo();
+    }
+  }
+  set(ih, p, undo=false){
+    this.els.board.innerHTML = ih;
+    this._player = p;
+    let f = this.select;
+    Array.from(this.shadowRoot.querySelectorAll('.circle')).map(el=>el.addEventListener('click', f));
+    Array.from(this.shadowRoot.querySelectorAll('.wall.spot')).map(el=>el.addEventListener('click', f));
+    if (undo){
+        this.undone.push([ih, p, false]);
+    }else{
+        this.moves.push([ih, p, true]);
+    }
+  }
+
+  make(tag, attributes={}, classes=[], listeners={}){
+    let el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (let [k,v] of Object.entries(attributes)){
+        el.setAttribute(k, v);
+    }
+    for (let c of classes){
+        el.classList.add(c);
+    }
+    for (let [k,v] of Object.entries(listeners)){
+        el.addEventListener(k, v);
+    }
+    return el
+  }
+
 
   _player = 1
   get player(){return this._player}
@@ -254,13 +355,23 @@ class quoridorGame extends HTMLElement {
         this.turn2.classList.remove("used");
         this.turn1.classList.add("used");
     }
+    if (this.flip){
+        this.r = this._player;
+    }
   }
 
 }
-customElements.define('quoridor-game', quoridorGame);
+customElements.define('quoridor-game', QuoridorGame);
 /* add the custom element to page */
 var gameBoard = document.createElement('quoridor-game');
 document.body.appendChild(gameBoard);
+
+//var gameBoard2 = document.createElement('quoridor-game');
+//document.body.appendChild(gameBoard2);
+//gameBoard2.r = 2;
+
+//gameBoard.send = gameBoard2.receive;
+//gameBoard2.send = gameBoard.receive;
 
 </script>
 </html>
