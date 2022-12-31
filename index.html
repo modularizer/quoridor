@@ -40,6 +40,7 @@ class QuoridorGame extends HTMLElement {
     }
 
     this.select = this.select.bind(this);
+    this._select = this._select.bind(this);
     this.send = this.send.bind(this);
     this.receive = this.receive.bind(this);
     this._r = this.hasAttribute("r")?(1*this.getAttribute("r")):1;
@@ -86,9 +87,9 @@ class QuoridorGame extends HTMLElement {
         }
       </style>
 
-      <svg id = "svg" transform="rotate(${180*(2-this._r)})" width="45%" height="45%" viewBox="-20 -20 140 140" class="point">
+      <svg id = "svg" transform="rotate(${180*(2-this._r)})" width="75%" height="75%" viewBox="-20 -20 140 140" class="point">
         <g id="board" class="point">
-            <text id="player" style="display:none">1</text>
+            <text id="player" style="opacity:0">1</text>
             <g id="walls">
                 <g id="walls1"></g>
                 <g id="walls2"></g>
@@ -226,9 +227,14 @@ class QuoridorGame extends HTMLElement {
   get nextWall2(){return this.shadowRoot.querySelector(".wall.player2:not(.used)")}
 
   select(e){
-    this.moves.push([this.els.board.innerHTML, this._player, true]);
+    this._select(e.target.id);
+    this.send(e.target.id);
+  }
+
+  _select(id){
     this.undone = [];
-    let el = e.target;
+    this.moves.push([id, true]);
+    let el = this.els[id];
     let player = el.classList.contains("player1")?1:(el.classList.contains("player2")?2:0);
     if (!el.classList.contains("gone")){ // make sure this piece is allowed to be used
         if (el.classList.contains("wall")){
@@ -274,13 +280,6 @@ class QuoridorGame extends HTMLElement {
             }
         }
     }
-    this.sendPlay()
-  }
-  sendPlay(u){
-    let ih = this.els.svg.innerHTML;
-    let p = this.player;
-    let payload = {ih, p};
-    this.send(payload);
   }
   sendUndo(u){
     this.send("undo");
@@ -304,14 +303,11 @@ class QuoridorGame extends HTMLElement {
         }else if (p === "redo"){
             this.redo();
         }else{
-            this.receivePlay(p);
+            this._select(p);
         }
         this.r = r;
         console.log(this.r);
     }
-  }
-  receivePlay(payload){
-    this.set(payload.ih, payload.p, false);
   }
   undo(){
     if (this.moves.length){
@@ -329,7 +325,7 @@ class QuoridorGame extends HTMLElement {
   }
   set(ih, p, undo=false){
     this.els.board.innerHTML = ih;
-    this._player = p;
+    this.player = p;
     let f = this.select;
     Array.from(this.shadowRoot.querySelectorAll('.circle')).map(el=>el.addEventListener('click', f));
     Array.from(this.shadowRoot.querySelectorAll('.wall.spot')).map(el=>el.addEventListener('click', f));
