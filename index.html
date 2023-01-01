@@ -11,16 +11,52 @@
 </body>
 <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 <script>
+function speak(text, speed = 1, voiceName = '') {
+  // Check if the browser supports speech synthesis
+  if ('speechSynthesis' in window) {
+    // Get the speech synthesis object
+    var synth = window.speechSynthesis;
+
+    // Create a new speech synthesis utterance
+    var utterance = new SpeechSynthesisUtterance(text);
+
+    // Set the desired speed and voice
+    utterance.rate = speed;
+    utterance.voice = synth.getVoices().find(voice => voice.name === voiceName);
+
+    // Speak the utterance
+    synth.speak(utterance);
+  }
+}
+
 class MqttClient {
-  constructor(topic, options){
+  constructor(name, topic, options){
     let client = mqtt.connect('wss://public:public@public.cloud.shiftr.io', {clientId: 'javascript'});
     client.on('connect', function() {client.subscribe(topic);});
-    client.on('message', ((t, message)=>{if (t === topic){this.receive(message)}}).bind(this));
+    client.on('message', ((t, message)=>{
+      if (t === topic){
+        message = JSON.parse(message);
+
+        if (message === 'rollCall'){
+            this.send('roll-' + this.name)
+        }if (message.startsWith && message.startsWith('roll-')){
+            this.receiveRoll(message.replace('chat-',''))
+        }else if (message.startsWith && message.startsWith('chat-')){
+            this.receiveChat(message.replace('chat-',''))
+        }else{
+            this.receive(message)
+        }
+      }
+    }).bind(this));
     this.client = client;
     this.topic = topic;
   }
-  send(m){this.client.publish(this.topic, m)}
+  rollCall(){
+    this.send("roll");
+  }
+  send(m){this.client.publish(this.topic, JSON.stringify(m))}
   receive(p){console.log(p)}
+  receiveChat(m){console.log(m)}
 }
 
 /* make a customElement class which makes an svg which contains a 9x9 grid of light red cells with the spacing between cells 1/3 of the cell. make the element store the cell elements as a 2d 9x9 array */
@@ -37,9 +73,7 @@ class QuoridorGame extends HTMLElement {
 
 
     this.connect = this.connect.bind(this);
-    if (this.search.topic){
-        this.connect(this.search.topic);
-    }
+    this.rotate = this.rotate.bind(this);
     this.select = this.select.bind(this);
     this._select = this._select.bind(this);
     this.send = this.send.bind(this);
@@ -50,8 +84,6 @@ class QuoridorGame extends HTMLElement {
     this.attachShadow({mode: 'open'});
     this.shadowRoot.innerHTML = `
       <style>
-        .point{
-        }
         .gone{
             display: none;
         }
@@ -88,8 +120,8 @@ class QuoridorGame extends HTMLElement {
         }
       </style>
 
-      <svg id = "svg" transform="rotate(${180*(2-this._r)})" width="75%" height="75%" viewBox="-20 -20 140 140" class="point">
-        <g id="board" class="point">
+      <svg id = "svg" transform="rotate(${180*(2-this._r)})" viewBox="-20 -20 140 140" height="90vh" class="svg">
+        <g id="board">
             <text id="player" style="opacity:0">1</text>
             <g id="walls">
                 <g id="walls1"></g>
@@ -99,16 +131,23 @@ class QuoridorGame extends HTMLElement {
             </g>
         </g>
       </svg><br/>
+      <input id="playername" onchange="gameBoard.name = this.value" value="${this.name}" placeholder="player name"/>
+      <input onchange="gameBoard.connect(this.value)" value="${this.search.topic?this.search.topic:''}" placeholder="game id"/>
       <button onclick="gameBoard.undo()">undo</button>
       <button onclick="gameBoard.redo()">redo</button>
       <button onclick="location.reload(true)">reset</button>
+      <button onclick="gameBoard.rotate()">rotate</button>
     `;
+
+
     let r = this.shadowRoot;
     this.els = new Proxy({},{
         get(target, id, receiver){
             return r.getElementById(id)
         }
     })
+    this.name = localStorage.getItem("playername")?localStorage.getItem("playername"):(this.search.playername?this.search.playername:'')
+
 
     this.svg = this.shadowRoot.getElementById("svg");
 
@@ -213,18 +252,42 @@ class QuoridorGame extends HTMLElement {
             }
         }
     }).bind(this))
+
     this.r = this.search.r?this.search.r:1;
+    if (this.search.topic){
+        this.connect(this.search.topic);
+    }
+  }
+  _name = ""
+  get name(){return this._name}
+  set name(v){
+    if (this.gameActive){
+        alert("cannot set name while game is active")
+    }
+    while (!name){
+        name = prompt("set player name")
+    }
+    localStorage.setItem("playername", name);
+    this.els.playername.value = name;
   }
 
   connect(topic){
-    this.channel = new MqttClient("modularizerquoridor" + this.search.topic);
-    this.channel.receive = this.receive.bind(this);
+    let c = "modularizerquoridor" + topic;
+    if (!(this.channel && this.channel.topic===c)){
+        this.channel = new MqttClient(this.name, c);
+        this.channel.receive = this.receive.bind(this);
+        let s = `?topic=${topic}&r=${this.r}&loud=${this.search.loud?this.search.loud:false}`
+        if (s !== location.search){
+            location.search = s
+        }
+    }
   }
+  rotate(){this.r = 3 - this.r}
 
-  get r(){return (1*this.els.svg.getAttribute("transform").replace("rotate(","").replace(")",""))/180}
+  get r(){return 2 - (1*this.els.svg.getAttribute("transform").replace("rotate(","").replace(")",""))/180}
   set r(v){
     this.els.svg.setAttribute("transform", `rotate(${180*(2-v)})`)
-    console.log(this.els.svg.getAttribute("transform"))
+
     }
 
   get player1(){return this.shadowRoot.querySelector(".player1[selected]")}
@@ -238,8 +301,9 @@ class QuoridorGame extends HTMLElement {
   }
 
   _select(id){
+    this.gameActive = true;
     this.undone = [];
-    this.moves.push([id, true]);
+    this.moves.push(this.els.board.innerHTML);
     let el = this.els[id];
     let player = el.classList.contains("player1")?1:(el.classList.contains("player2")?2:0);
     if (!el.classList.contains("gone")){ // make sure this piece is allowed to be used
@@ -257,11 +321,21 @@ class QuoridorGame extends HTMLElement {
                 let d = el.id.slice(0, 1);
                 let r = 1*el.id.slice(-2,-1);
                 let c = 1*el.id.slice(-1);
-                let otherIds = [
-                    ((d === "h")?"v":"h") + "wall" + r + c,
-                    d + "wall" + (r-1) + c,
-                    d + "wall" + r + (c-1)
-                ]
+                let otherIds = []
+                if (d==="v"){
+                    otherIds = [
+                        "hwall" + r + c,
+                        "vwall" + r + (c-1),
+                        "vwall" + r + (c+1),
+                    ]
+                }else{
+                    otherIds = [
+                        "vwall" + r + c,
+                        "hwall" + (r+1) + c,
+                        "hwall" + (r-1) + c,
+                    ]
+                }
+
                 for (let otherId of otherIds){
                     var other = this.shadowRoot.getElementById(otherId);
                     if (other){
@@ -295,50 +369,55 @@ class QuoridorGame extends HTMLElement {
   }
   send(p){
     if (this.search.topic){
-        this.channel.send(JSON.stringify({uid: this.uid, payload: p}));
+        this.channel.send({uid: this.uid, payload: p});
     }
   }
-  receive(p){
-    let d = JSON.parse(p);
+  receive(d){
     if (d.uid != this.uid){
-        p = d.payload;
-        console.log("Received", p)
+        console.log(d)
+        let p = d.payload;
         let r = this.r;
         if (p === "undo"){
-            this.undo();
+            this.undo(false);
         }else if (p === "redo"){
-            this.redo();
+            this.redo(false);
         }else{
             this._select(p);
         }
         this.r = r;
+
+        if ((this.r === this.player) && this.search.loud){
+            speak("your move", 2)
+        }
         console.log(this.r);
     }
   }
-  undo(){
+  undo(send=true){
     if (this.moves.length){
-        let [ih, p, u] = this.moves.pop();
-        this.set(ih, p, u);
-        this.sendUndo();
+        this.set(this.moves.pop(), true);
+        if (send){
+            this.sendUndo();
+        }
     }
   }
-  redo(){
+  redo(send=true){
     if (this.undone.length){
-        let [ih, p, u]= this.undone.pop();
-        this.set(ih, p, u);
-        this.sendRedo();
+        this.set(this.undone.pop(), false);
+        if (send){
+            this.sendRedo();
+        }
     }
   }
-  set(ih, p, undo=false){
+  set(ih, undo=false){
+    let iih = this.els.board.innerHTML;
     this.els.board.innerHTML = ih;
-    this.player = p;
     let f = this.select;
     Array.from(this.shadowRoot.querySelectorAll('.circle')).map(el=>el.addEventListener('click', f));
     Array.from(this.shadowRoot.querySelectorAll('.wall.spot')).map(el=>el.addEventListener('click', f));
     if (undo){
-        this.undone.push([ih, p, false]);
+        this.undone.push(iih);
     }else{
-        this.moves.push([ih, p, true]);
+        this.moves.push(iih);
     }
   }
 
@@ -356,17 +435,17 @@ class QuoridorGame extends HTMLElement {
     return el
   }
 
-  get player(){return this.els.player.innerHTML*1}
+  get player(){return 1 * this.els.player.innerText}
   set player(v){
     let els = Array.from(this.shadowRoot.querySelectorAll(".circle.player1:not([selected])"));
     if (v == 1){
         els.map(el=>{el.style.display='block'});
-        this.els.player.innerHTML = v;
+        this.els.player.innerText = v;
         this.turn1.classList.remove("used");
         this.turn2.classList.add("used");
     }else if (v == 2){
         els.map(el=>{el.style.display='none'});
-        this.els.player.innerHTML = v;
+        this.els.player.innerText = v;
         this.turn2.classList.remove("used");
         this.turn1.classList.add("used");
     }
